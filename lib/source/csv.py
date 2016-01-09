@@ -2,12 +2,12 @@ import os
 import csv
 import glob
 import datetime
-import conf.config
 from . import base
 
 class CSVSource(base.NullSource):
-    def __init__(self, mask, sort='time', header=0, encoding=conf.config.encoding):
+    def __init__(self, mask, root='.', sort='time', header=0, encoding='utf-8'):
         super().__init__()
+        self.root = root
         self.mask = mask if type(mask) is not str else [mask]
         self.sort = sort
         self.header = header
@@ -17,7 +17,7 @@ class CSVSource(base.NullSource):
         if complete: since = None
 
         gen = ({'name': os.path.abspath(file), 'time': datetime.datetime.fromtimestamp(os.path.getmtime(file), tz=datetime.timezone.utc).astimezone(tz=None)}
-            for mask in self.mask for file in glob.glob(os.path.join(conf.config.root, mask)) if not file.endswith('.error'))
+            for mask in self.mask for file in glob.glob(os.path.join(self.root, mask)) if not file.endswith('.error'))
 
         if since is not None:
             gen = filter(lambda x: x['time'] > since, gen)
