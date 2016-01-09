@@ -59,7 +59,7 @@ class Action(metaclass=ActionMeta):
     _before = set()
     _after = set()
 
-    def transform(self, line): return line
+    def transform(self, entry, line): return line
 
     ## helper
     def __init__(self, conn, complete=False):
@@ -109,10 +109,12 @@ class Action(metaclass=ActionMeta):
     def after_setup(self): pass
     def before_list(self): pass
     def after_list(self): pass
+    def before_staging(self): pass
     def before_extract(self, entry): pass
     def after_extract(self, entry): pass
-    def before_insert(self, entry): pass
-    def after_insert(self, entry): pass
+    def before_load(self, entry): pass
+    def after_load(self, entry): pass
+    def after_staging(self): pass
     def after_run(self, skipped): pass
 
     ## perform
@@ -122,9 +124,10 @@ class Action(metaclass=ActionMeta):
 
     def do_list(self):
         self.list = self._source.list(self.since, self.complete)
+        self.log.info('Generated %s sources.', len(self.list))
 
     def do_extract(self, entry):
-        total, source = 0, self._source.extract(entry)
+        total, source = 0, (self.transform(entry, line) for line in self._source.extract(entry))
         while True:
             lines = list(zip(range(500), source))
             if len(lines) == 0: break
@@ -143,19 +146,25 @@ class Action(metaclass=ActionMeta):
         self.log.info('Extracted %s rows from %s.', total, entry)
         return total
 
-    def do_insert(self):
+    def do_load(self, entry):
         self.sql('INSERT INTO {}.{} SELECT * FROM staging {}'.format(self._schema, self._table, self.conflict))
+        self.log.info('Loaded %s rows from %s.', self.conn.rowcount, entry)
+        return self.conn.rowcount
 
     def run(self):
+        log = self.log
         self.before_run()
 
+        self.log = log.getChild('setup')
         self.before_setup()
         self.do_setup()
         self.after_setup()
 
+        self.log = log.getChild('list')
         self.before_list()
         self.do_list()
         self.after_list()
+        self.log = log
 
         skipped = False
         if len(self.list) == 0:
@@ -165,25 +174,33 @@ class Action(metaclass=ActionMeta):
             self.sql('CREATE TEMP TABLE staging (LIKE {}.{}) ON COMMIT DROP'.format(self._schema, self._table))
             if self.has_key(): self.sql('CREATE UNIQUE INDEX ON staging ({})'.format(self.key()))
 
-            self.total = 0
+            self.extracted, self.loaded = 0, 0
+            self.before_staging()
             for record in self.list:
                 entry, updated, meta = record
                 self.latest = updated
 
+                self.log = log.getChild('extract')
                 self.before_extract(entry)
                 total = self.do_extract(entry)
-                self.total += total
+                self.extracted += total
                 self.after_extract(entry)
 
                 if total > 0:
-                    self.before_insert(entry)
-                    self.do_insert()
-                    self.after_insert(entry)
+                    self.log = log.getChild('load')
+                    self.before_load(entry)
+                    self.loaded += self.do_load(entry)
+                    self.after_load(entry)
 
+                self.log = log
                 self.sql('TRUNCATE staging')
+            self.after_staging()
 
             self.last_updated(self.latest)
-            self.log.info('Processed %s rows from %s files.', self.total, len(self.list))
+            if self.extracted != self.loaded:
+                self.log.info('Processed %s (%s) rows from %s files.', self.loaded, '{:+}'.format(self.extracted - self.loaded), len(self.list))
+            else:
+                self.log.info('Processed %s rows from %s files.', self.loaded, len(self.list))
             self.sql('DROP TABLE staging')
 
         self.after_run(skipped)
