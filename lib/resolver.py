@@ -10,7 +10,6 @@ def execute(conn, actions, complete=False):
     todo, done = set(actions), set()
 
     cur = conn.cursor()
-    cur.execute('SET search_path TO config')
     cur.execute('SET CONSTRAINTS ALL DEFERRED')
     while len(todo) > 0:
         some = False
