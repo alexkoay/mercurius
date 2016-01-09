@@ -136,8 +136,8 @@ class Action(metaclass=ActionMeta):
             try:
                 self.sql('INSERT INTO staging ({}) VALUES {} {}'.format(self.field(), values, self.conflict), level=logging.DEBUG)
             except Exception as e:
+                self.log.error('Failed to import %s somewhere between rows #%s and #%s.', entry, total+1, total+len(lines))
                 self._source.fail(entry, e)
-                self.log.error('Failed to import %s somewhere between rows #%s and #%s.', entry, total, total+len(lines))
                 raise e
             else:
                 total += self.conn.rowcount

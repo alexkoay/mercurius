@@ -12,6 +12,7 @@ class CSVSource(base.NullSource):
         self.sort = sort
         self.header = header
         self.enc = encoding
+        self.file = None
 
     def list(self, since=None, complete=False):
         if complete: since = None
@@ -28,17 +29,21 @@ class CSVSource(base.NullSource):
         return [(x['name'], x['time'], None) for x in gen]
 
     def extract(self, entry):
-        with open(entry, 'r', encoding=self.enc) as file:
-            reader = csv.reader(file)
-            try: _ = list(zip(range(self.header), reader))
-            except StopIteration: return
+        if self.file is None:
+            self.file = open(entry, 'r', encoding=self.enc)
 
-            for line in reader:
-                yield line
+        reader = csv.reader(self.file)
+        try: _ = list(zip(range(self.header), reader))
+        except StopIteration: return
+
+        for line in reader:
+            yield line
 
     def fail(self, entry, exc=None):
+        self.file.close()
         os.replace(entry, entry + '.error')
 
     def succeed(self, entry):
+        self.file.close()
         if os.path.isfile(entry + '.error'):
             os.remove(entry + '.error')
