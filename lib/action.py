@@ -5,12 +5,41 @@ from .source.base import NullSource
 
 ## meta ######################################################################
 
+def decorate_stage(stage, do):
+    '''Hooks the do_* functions with before_ and after_'''
+    if stage == 'staging':
+        def hook(self, *args, **kwargs):
+            getattr(self, 'before_' + stage)(*args, **kwargs)
+            val = do(self, *args, **kwargs)
+            getattr(self, 'after_' + stage)(*args, **kwargs)
+            return val
+    else:
+        def hook(self, *args, **kwargs):
+            log = self.log
+            self.log = log.getChild(stage)
+            getattr(self, 'before_' + stage)(*args, **kwargs)
+            val = do(self, *args, **kwargs)
+            getattr(self, 'after_' + stage)(*args, **kwargs)
+            self.log = log
+            return val
+    return hook
+
 registry = { }
 class ActionMeta(type):
+    def __new__(cls, name, bases, nmspc):
+        for key in nmspc:
+            if not key.startswith('do_'): continue
+            _, stage = key.split('_', 2)
+            nmspc[key] = decorate_stage(stage, nmspc[key])
+
+        return type.__new__(cls, name, bases, nmspc)
+
     def __init__(cls, name, bases, nmspc):
         log = logging.getLogger('action')
 
         super().__init__(name, bases, nmspc)
+
+        # sanitize class definition
         cls._id = cls._id if cls._id else cls._table
         cls._before = set(cls._before)
         cls._after = set(cls._after)
@@ -126,7 +155,22 @@ class Action(metaclass=ActionMeta):
         self.list = self._source.list(self.since, self.complete)
         self.log.info('Generated %s sources.', len(self.list))
 
+    def do_staging(self):
+        for record in self.list:
+            entry, updated, meta = record
+            self.latest = updated
+
+            total = self.do_extract(entry)
+            self.extracted += total
+
+            if total > 0:
+                self.loaded += self.do_load(entry)
+
+            self.sql('TRUNCATE staging')
+
+
     def do_extract(self, entry):
+        self.log.debug('Extracting data from %s.', entry)
         total, source = 0, (self.transform(entry, line) for line in self._source.extract(entry))
         while True:
             lines = list(zip(range(500), source))
@@ -136,11 +180,12 @@ class Action(metaclass=ActionMeta):
             try:
                 self.sql('INSERT INTO staging ({}) VALUES {} {}'.format(self.field(), values, self.conflict), level=logging.DEBUG)
             except Exception as e:
-                self.log.error('Failed to import %s somewhere between rows #%s and #%s.', entry, total+1, total+len(lines))
+                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, total+1, total+len(lines))
                 self._source.fail(entry, e)
                 raise e
             else:
                 total += self.conn.rowcount
+                self.log.debug('Loaded %s (+%s) rows.', total, self.conn.rowcount)
 
         self._source.succeed(entry)
         self.log.info('Extracted %s rows from %s.', total, entry)
@@ -152,19 +197,10 @@ class Action(metaclass=ActionMeta):
         return self.conn.rowcount
 
     def run(self):
-        log = self.log
         self.before_run()
 
-        self.log = log.getChild('setup')
-        self.before_setup()
         self.do_setup()
-        self.after_setup()
-
-        self.log = log.getChild('list')
-        self.before_list()
         self.do_list()
-        self.after_list()
-        self.log = log
 
         skipped = False
         if len(self.list) == 0:
@@ -175,26 +211,7 @@ class Action(metaclass=ActionMeta):
             if self.has_key(): self.sql('CREATE UNIQUE INDEX ON staging ({})'.format(self.key()))
 
             self.extracted, self.loaded = 0, 0
-            self.before_staging()
-            for record in self.list:
-                entry, updated, meta = record
-                self.latest = updated
-
-                self.log = log.getChild('extract')
-                self.before_extract(entry)
-                total = self.do_extract(entry)
-                self.extracted += total
-                self.after_extract(entry)
-
-                if total > 0:
-                    self.log = log.getChild('load')
-                    self.before_load(entry)
-                    self.loaded += self.do_load(entry)
-                    self.after_load(entry)
-
-                self.log = log
-                self.sql('TRUNCATE staging')
-            self.after_staging()
+            self.do_staging()
 
             self.last_updated(self.latest)
             if self.extracted != self.loaded:
