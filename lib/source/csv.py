@@ -41,9 +41,11 @@ class CSVSource(base.NullSource):
 
     def fail(self, entry, exc=None):
         self.file.close()
+        self.file = None
         os.replace(entry, entry + '.error')
 
     def succeed(self, entry):
         self.file.close()
+        self.file = None
         if os.path.isfile(entry + '.error'):
             os.remove(entry + '.error')
