@@ -5,32 +5,35 @@ from .source.base import NullSource
 
 ## meta ######################################################################
 
-def decorate_stage(stage, do):
-    '''Hooks the do_* functions with before_ and after_'''
-    if stage == 'staging':
+def decorate_phase(phase, do):
+    '''Hooks the `do_phase` functions with `before_phase` and `after_phase`.'''
+    if phase == 'staging':  # staging doesn't require an additional log
         def hook(self, *args, **kwargs):
-            getattr(self, 'before_' + stage)(*args, **kwargs)
+            getattr(self, 'before_' + phase)(*args, **kwargs)
             val = do(self, *args, **kwargs)
-            getattr(self, 'after_' + stage)(*args, **kwargs)
+            getattr(self, 'after_' + phase)(*args, **kwargs)
             return val
     else:
         def hook(self, *args, **kwargs):
             log = self.log
-            self.log = log.getChild(stage)
-            getattr(self, 'before_' + stage)(*args, **kwargs)
+            self.log = log.getChild(phase)
+            getattr(self, 'before_' + phase)(*args, **kwargs)
             val = do(self, *args, **kwargs)
-            getattr(self, 'after_' + stage)(*args, **kwargs)
+            getattr(self, 'after_' + phase)(*args, **kwargs)
             self.log = log
             return val
     return hook
 
 registry = { }
 class ActionMeta(type):
+    '''Metaclass for actions.'''
+
     def __new__(cls, name, bases, nmspc):
+        # hook before_* and _after_* with the do_* phases
         for key in nmspc:
             if not key.startswith('do_'): continue
-            _, stage = key.split('_', 2)
-            nmspc[key] = decorate_stage(stage, nmspc[key])
+            _, phase = key.split('_', 2)
+            nmspc[key] = decorate_phase(phase, nmspc[key])
 
         return type.__new__(cls, name, bases, nmspc)
 
@@ -45,37 +48,44 @@ class ActionMeta(type):
         cls._after = set(cls._after)
         cls.after_declare(name, bases, nmspc)
 
+        # add to registry and warn if there is are id clashes
         if cls._id:
             if cls._id in registry:
                 log.warning('Duplicate action found: %s (%s, %s)',
                     cls._id, registry.memo[cls._id], cls)
             registry[cls._id] = cls
 
-        if '_template' not in cls.__dict__:
-            available = list(bases)
-            defined = set()
-            while available:
-                base = available.pop(0)
-                defined.update(base.__dict__.keys())
-                available.extend(base.__bases__)
-            unknown = set(cls.__dict__.keys()) - defined
-            if len(unknown) > 0:
-                log.warning('%s.%s has unsupported features: %s',
-                    nmspc['__module__'], name, ', '.join(sorted(unknown)))
-        else:
+        # warn if non-template class features are not supported in base classes
+        cls._features = set(cls._features)
+        for base in bases:
+            cls._features |= base._features
+        if '_template' in cls.__dict__:
             del cls._template
+            cls._features |= cls.__dict__.keys()
+
+        unknown = set(cls.__dict__.keys()) - cls._features
+        if len(unknown) > 0:
+            log.warning('%s.%s has unsupported features: %s',
+                cls.__module__, name, ', '.join(sorted(unknown)))
 
 ## base ######################################################################
 
 class Action(metaclass=ActionMeta):
     '''
-    Each action happens in two stages: extract and load.
-    This happens separately for each source.
-    This allows the ETL to be precise and separated, as custom logic allow
-    staged rows to be manipulated before they enter the main table.
+    Actions happen in three phases: `setup`, `list`, and `staging`.
+    `setup` prepares the action instance with the necessary data to run.
+    `list` enumerates the sources to extract data from.
+    `staging` consists of two sub-phases, `extract` and `load`, and is executed for
+    each source that was enumerated.
+    `extract` (which also includes transform) pulls the data into a staging table,
+    before `load` inserts the data into the destination.
+
+    Each phase is coupled with a `before_phase` and `after_phase` that is
+    executed before and after the stage runs, respectively.
     '''
 
     _template = True
+    _features = set()
 
     ## configuration
     _id = ''
@@ -85,6 +95,7 @@ class Action(metaclass=ActionMeta):
     _fields = []
     _update = False
 
+    # dependencies
     _before = set()
     _after = set()
 
@@ -118,19 +129,19 @@ class Action(metaclass=ActionMeta):
     def last_updated(self, value=None):
         if value is None:
             self.sql('SELECT updated FROM _updated WHERE id = %s', [self._id])
-            return self.conn.fetchone()[0]
+            return self.conn.fetchone()[0].astimezone(tz=None)
         else:
             self.sql('INSERT INTO _updated VALUES (%s, %s) '
                 'ON CONFLICT (id) DO UPDATE SET updated = EXCLUDED.updated',
-                [self._id, value])
+                [self._id, value.astimezone(tz=None)])
             return value
 
     def conflict_phrase(self):
         if not self.has_key(): return ''
-        action = 'UPDATE SET {}'.format(self.field_set() if self._update else 'NOTHING')
+        action = 'UPDATE SET {}'.format(self.field_set()) if self._update else 'NOTHING'
         return 'ON CONFLICT ({}) DO {}'.format(self.key(), action)
 
-    ## stages
+    ## phases
     @classmethod
     def after_declare(cls, name, bases, nmspc): pass
     def before_run(self): pass
@@ -171,25 +182,30 @@ class Action(metaclass=ActionMeta):
 
     def do_extract(self, entry):
         self.log.debug('Extracting data from %s.', entry)
-        total, source = 0, (self.transform(entry, line) for line in self._source.extract(entry))
+        read, loaded, source = 0, 0, (self.transform(entry, line) for line in self._source.extract(entry))
         while True:
             lines = list(zip(range(500), source))
             if len(lines) == 0: break
 
-            values = ','.join(self.conn.mogrify('({})'.format(','.join(['%s'] * len(line))), line).decode('utf-8') for i, line in lines)
+            read += len(lines)
+            self.log.debug('Read %s (+%s) rows.', read, len(lines))
+
+            values = ','.join(self.conn.mogrify('({})'.format(','.join(['%s'] * len(line))), line).decode('utf-8') for i, line in lines if line is not None)
+            if values == '': continue
+
             try:
                 self.sql('INSERT INTO staging ({}) VALUES {} {}'.format(self.field(), values, self.conflict), level=logging.DEBUG)
             except Exception as e:
-                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, total+1, total+len(lines))
+                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, read+1, read+len(lines))
                 self._source.fail(entry, e)
                 raise e
             else:
-                total += self.conn.rowcount
-                self.log.debug('Loaded %s (+%s) rows.', total, self.conn.rowcount)
+                loaded += self.conn.rowcount
+                self.log.debug('Extracted %s (+%s) rows.', loaded, self.conn.rowcount)
 
         self._source.succeed(entry)
-        self.log.info('Extracted %s rows from %s.', total, entry)
-        return total
+        self.log.info('Extracted %s (%s) rows from %s.', loaded, loaded - read, entry)
+        return loaded
 
     def do_load(self, entry):
         self.sql('INSERT INTO {}.{} SELECT * FROM staging {}'.format(self._schema, self._table, self.conflict))
@@ -205,7 +221,7 @@ class Action(metaclass=ActionMeta):
         skipped = False
         if len(self.list) == 0:
             skipped = True
-            self.log.info('Found no new sources since %s -- skipped.', self.since.astimezone(tz=None))
+            self.log.info('Found no new sources since %s -- skipped.', self.since)
         else:
             self.sql('CREATE TEMP TABLE staging (LIKE {}.{}) ON COMMIT DROP'.format(self._schema, self._table))
             if self.has_key(): self.sql('CREATE UNIQUE INDEX ON staging ({})'.format(self.key()))
