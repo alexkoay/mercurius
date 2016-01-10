@@ -1,7 +1,7 @@
 from .action import registry
 import logging
 
-def execute(conn, actions, complete=False):
+def resolve(conn, actions, complete=False):
     log = logging.getLogger('base')
     log.info('Found %s actions.', len(registry))
     log.info('Actions: %s', ', '.join(registry.keys()))
