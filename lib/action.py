@@ -113,10 +113,10 @@ class Action(metaclass=ActionMeta):
                 [self._schema, self._table])
             self._fields = [col[0] for col in self.conn.fetchall()]
 
-    def sql(self, cmd, args=None, level=15):
-        self.log.getChild('sql').log(level, '> %s',
-            self.conn.mogrify(cmd, args).decode('utf-8'))
+    def sql(self, cmd, args=None, level=logging.INFO):
         self.conn.execute(cmd, args)
+        self.log.getChild('sql').log(level, '> %s',
+            self.conn.query.decode('utf-8'))
 
     def has_key(self): return len(self._keys) > 0
     def key(self): return ', '.join(self._keys)
