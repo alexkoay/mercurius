@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import datetime
 from .source.base import NullSource
 
 ## meta ######################################################################
@@ -129,11 +130,11 @@ class Action(metaclass=ActionMeta):
     def last_updated(self, value=None):
         if value is None:
             self.sql('SELECT updated FROM _updated WHERE id = %s', [self._id])
-            return self.conn.fetchone()[0].astimezone(tz=None)
+            return self.conn.fetchone()[0].astimezone(datetime.timezone.utc).astimezone(tz=None)
         else:
             self.sql('INSERT INTO _updated VALUES (%s, %s) '
                 'ON CONFLICT (id) DO UPDATE SET updated = EXCLUDED.updated',
-                [self._id, value.astimezone(tz=None)])
+                [self._id, value.astimezone(datetime.timezone.utc).astimezone(tz=None)])
             return value
 
     def conflict_phrase(self):
@@ -221,7 +222,7 @@ class Action(metaclass=ActionMeta):
         skipped = False
         if len(self.list) == 0:
             skipped = True
-            self.log.info('Found no new sources since %s -- skipped.', self.since)
+            self.log.info('Found no new sources after %s -- skipped.', self.since)
         else:
             self.sql('CREATE TEMP TABLE staging (LIKE {}.{}) ON COMMIT DROP'.format(self._schema, self._table))
             if self.has_key(): self.sql('CREATE UNIQUE INDEX ON staging ({})'.format(self.key()))

@@ -4,7 +4,7 @@ import logging
 def resolve(conn, actions, complete=False):
     log = logging.getLogger('base')
     log.info('Found %s actions.', len(registry))
-    log.info('Actions: %s', ', '.join(registry.keys()))
+    log.debug('Actions: %s', ', '.join(registry.keys()))
 
     if '*' in actions: actions = registry.keys()
     todo, done = set(actions), set()
