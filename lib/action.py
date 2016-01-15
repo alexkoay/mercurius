@@ -130,7 +130,8 @@ class Action(metaclass=ActionMeta):
     def last_updated(self, value=None):
         if value is None:
             self.sql('SELECT updated FROM _updated WHERE id = %s', [self._id])
-            return self.conn.fetchone()[0].astimezone(datetime.timezone.utc).astimezone(tz=None)
+            result = self.conn.fetchone()
+            return result[0].astimezone(datetime.timezone.utc).astimezone(tz=None) if result else None
         else:
             self.sql('INSERT INTO _updated VALUES (%s, %s) '
                 'ON CONFLICT (id) DO UPDATE SET updated = EXCLUDED.updated',
