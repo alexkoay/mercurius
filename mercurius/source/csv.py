@@ -8,7 +8,7 @@ from . import base
 class CSVSource(base.NullSource):
     def __init__(self, mask, root='.', sort='time', header=0, encoding='utf-8'):
         super().__init__()
-        self.root = root
+        self.root = os.path.abspath(os.path.expanduser(root))
         self.mask = mask if type(mask) is not str else [mask]
         self.sort = sort
         self.header = header
