@@ -107,12 +107,6 @@ class Action(metaclass=ActionMeta):
         self.log = logging.getLogger(self._id)
         self.conn = conn
         self.complete = complete
-        if not self._fields:
-            self.sql('SELECT column_name FROM information_schema.columns '
-                'WHERE (table_schema, table_name) = (%s, %s) '
-                'ORDER BY ordinal_position',
-                [self._schema, self._table])
-            self._fields = [col[0] for col in self.conn.fetchall()]
 
     def sql(self, cmd, args=None, level=logging.INFO):
         self.conn.execute(cmd, args)
@@ -122,10 +116,18 @@ class Action(metaclass=ActionMeta):
     def has_key(self): return len(self._keys) > 0
     def key(self): return ', '.join(self._keys)
 
-    def field_to_pos(self, name): return self._fields.index(name)
-    def field(self): return ', '.join(self._fields)
+    def fields(self):
+        if not self._fields:
+            self.sql('SELECT column_name FROM information_schema.columns '
+                'WHERE (table_schema, table_name) = (%s, %s) '
+                'ORDER BY ordinal_position',
+                [self._schema, self._table])
+            self._fields = [col[0] for col in self.conn.fetchall()]
+        return self._fields
+    def field_to_pos(self, name): return self.fields().index(name)
+    def field(self): return ', '.join(self.fields())
     def field_set(self, table='EXCLUDED'):
-        return ', '.join('{0} = {1}.{0}'.format(i, table) for i in self._fields)
+        return ', '.join('{0} = {1}.{0}'.format(i, table) for i in self.fields())
 
     def last_updated(self, value=None):
         if value is None:
@@ -142,6 +144,9 @@ class Action(metaclass=ActionMeta):
         if not self.has_key(): return ''
         action = 'UPDATE SET {}'.format(self.field_set()) if self._update else 'NOTHING'
         return 'ON CONFLICT ({}) DO {}'.format(self.key(), action)
+
+    ## setup
+    def create_table(self): pass
 
     ## phases
     @classmethod
@@ -161,6 +166,9 @@ class Action(metaclass=ActionMeta):
 
     ## perform
     def do_setup(self):
+        self.sql('SELECT * FROM information_schema.tables WHERE table_schema = %s AND table_name = %s', [self._schema, self._table])
+        if self.conn.rowcount == 0: self.create_table()
+
         self.since = self.last_updated()
         self.conflict = self.conflict_phrase()
 
