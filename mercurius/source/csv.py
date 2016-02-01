@@ -32,7 +32,7 @@ class CSVSource(base.NullSource):
         if self.file is None:
             self.file = open(entry, 'r', encoding=self.enc)
 
-        reader = csv.reader(self.file)
+        reader = csv.reader([line.replace('\00', '') for line in self.file])
         try: _ = list(zip(range(self.header), reader))
         except StopIteration: return
 
