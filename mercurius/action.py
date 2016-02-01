@@ -195,6 +195,7 @@ class Action(metaclass=ActionMeta):
         read, loaded, source = 0, 0, (self.transform(entry, line) for line in self._source.extract(entry))
         while True:
             try:
+                lines = []
                 lines = list(zip(range(500), source))
                 if len(lines) == 0: break
 
@@ -206,7 +207,7 @@ class Action(metaclass=ActionMeta):
 
                 self.sql('INSERT INTO staging ({}) VALUES {} {}'.format(self.field(), values, self.conflict), level=logging.DEBUG)
             except Exception as e:
-                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, read+1, read+len(lines))
+                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, read+1, read+(len(lines) if lines else 500))
                 self._source.fail(entry, e)
                 raise e
             else:
