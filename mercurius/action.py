@@ -186,16 +186,16 @@ class Action(metaclass=ActionMeta):
         self.log.debug('Extracting data from %s.', entry)
         read, loaded, source = 0, 0, (self.transform(entry, line) for line in self._source.extract(entry))
         while True:
-            lines = list(zip(range(500), source))
-            if len(lines) == 0: break
-
-            read += len(lines)
-            self.log.debug('Read %s (+%s) rows.', read, len(lines))
-
-            values = ','.join(self.conn.mogrify('({})'.format(','.join(['%s'] * len(line))), line).decode('utf-8') for i, line in lines if line is not None)
-            if values == '': continue
-
             try:
+                lines = list(zip(range(500), source))
+                if len(lines) == 0: break
+
+                read += len(lines)
+                self.log.debug('Read %s (+%s) rows.', read, len(lines))
+
+                values = ','.join(self.conn.mogrify('({})'.format(','.join(['%s'] * len(line))), line).decode('utf-8') for i, line in lines if line is not None)
+                if values == '': continue
+
                 self.sql('INSERT INTO staging ({}) VALUES {} {}'.format(self.field(), values, self.conflict), level=logging.DEBUG)
             except Exception as e:
                 self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, read+1, read+len(lines))
