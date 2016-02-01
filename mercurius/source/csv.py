@@ -1,6 +1,7 @@
 import os
 import csv
 import glob
+import logging
 import datetime
 from . import base
 
@@ -32,7 +33,15 @@ class CSVSource(base.NullSource):
         if self.file is None:
             self.file = open(entry, 'r', encoding=self.enc)
 
-        reader = csv.reader([line.replace('\00', '') for line in self.file])
+        nulls = False
+        def denull(line):
+            nonlocal nulls
+            if '\00' in line and not nulls:
+                logging.getLogger('csv').info('Suppressed NULL bytes found in %s.', entry)
+                nulls = True
+            return line.replace('\00', '')
+
+        reader = csv.reader([denull(line) for line in self.file])
         try: _ = list(zip(range(self.header), reader))
         except StopIteration: return
 
