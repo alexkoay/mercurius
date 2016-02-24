@@ -1,3 +1,4 @@
+import datetime
 
 def trim(line, cols=None):
     return list(col.strip() if type(col) is str else col for col in line)
@@ -12,4 +13,8 @@ def null_if(line, cols, fn):
     for col in cols:
         if fn(line[col]):
             line[col] = None
+    return line
+
+def combine_datetime(line, col, format):
+    line[col:col+2] = [datetime.datetime.strptime(' '.join(line[col:col+2]), format)]
     return line
