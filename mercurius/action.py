@@ -242,9 +242,9 @@ class Action(metaclass=ActionMeta):
 
             self.last_updated(self.latest)
             if self.extracted != self.loaded:
-                self.log.info('Processed %s (%s) rows from %s files.', self.loaded, '{:+}'.format(self.extracted - self.loaded), len(self.list))
+                self.log.warn('Processed %s (%s) rows from %s files.', self.loaded, '{:+}'.format(self.extracted - self.loaded), len(self.list))
             else:
-                self.log.info('Processed %s rows from %s files.', self.loaded, len(self.list))
+                self.log.warn('Processed %s rows from %s files.', self.loaded, len(self.list))
             self.sql('DROP TABLE staging')
 
         self.after_run(skipped)
