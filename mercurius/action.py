@@ -94,6 +94,7 @@ class Action(metaclass=ActionMeta):
     _source = NullSource()
     _keys = []
     _fields = []
+    _batch = 500
     _update = False
 
     # dependencies
@@ -196,7 +197,7 @@ class Action(metaclass=ActionMeta):
         while True:
             try:
                 lines = []
-                lines = list(zip(range(500), source))
+                lines = list(zip(range(self._batch), source))
                 if len(lines) == 0: break
 
                 read += len(lines)
@@ -207,7 +208,7 @@ class Action(metaclass=ActionMeta):
 
                 self.sql('INSERT INTO staging ({}) VALUES {} {}'.format(self.field(), values, self.conflict), level=logging.DEBUG)
             except Exception as e:
-                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, read+1, read+(len(lines) if lines else 500))
+                self.log.error('Failed to import %s somewhere between rows #%s and #%s', entry, read+1, read+(len(lines) if lines else self._batch))
                 self._source.fail(entry, e)
                 raise e
             else:
