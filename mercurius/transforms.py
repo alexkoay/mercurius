@@ -15,11 +15,13 @@ def null_if(line, cols, fn):
             line[col] = None
     return line
 
-def combine(line, col, count, join=' ', suppress=False, datefmt=None):
-    line[col:col+count] = [join.join(i for i in line[col:col+count] if i)]
-    if datefmt is not None: line[col] = datetime.datetime.strptime(line[col], format)
+def combine(line, start, count, transform=None):
+    line[start:start+count] = [line[start:start+count]]
+    if transform is not None: line[start] = transform(line[start])
     return line
 
-def combine_datetime(line, col, format):
-    line[col:col+2] = [datetime.datetime.strptime(' '.join(line[col:col+2]), format)]
-    return line
+def parse_datetime(format):
+    return lambda x: datetime.datetime.strptime(' '.join(x), format)
+
+def join(sep, filter=None):
+    return lambda x: sep.join(i for i in x if filter is None or filter(i)).strip()
