@@ -1,7 +1,7 @@
 from .action import registry
 import logging
 
-def resolve(conn, actions, dependencies=True, complete=False):
+def resolve(conn, actions, dependencies=True, dry=False, complete=False):
     log = logging.getLogger('base')
     log.info('Found %s actions.', len(registry))
     log.debug('Actions: %s', ', '.join(registry.keys()))
@@ -21,7 +21,7 @@ def resolve(conn, actions, dependencies=True, complete=False):
             if not dependencies or done >= action._before:
                 some = True
 
-                act = action(cur, complete=complete)
+                act = action(cur, dry=dry, complete=complete)
                 act.run()
 
                 todo.remove(name)

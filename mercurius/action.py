@@ -104,9 +104,10 @@ class Action(metaclass=ActionMeta):
     def transform(self, entry, line): return line
 
     ## helper
-    def __init__(self, conn, complete=False):
+    def __init__(self, conn, dry=False, complete=False):
         self.log = logging.getLogger(self._id)
         self.conn = conn
+        self.dry = dry
         self.complete = complete
 
     def sql(self, cmd, args=None, level=logging.INFO):
@@ -223,8 +224,9 @@ class Action(metaclass=ActionMeta):
         return loaded
 
     def do_load(self, entry):
-        self.sql('INSERT INTO {}.{} SELECT * FROM staging {}'.format(self._schema, self._table, self.conflict))
-        self.log.info('Loaded %s rows from %s.', self.conn.rowcount, entry)
+        if not self.dry:
+            self.sql('INSERT INTO {}.{} SELECT * FROM staging {}'.format(self._schema, self._table, self.conflict))
+            self.log.info('Loaded %s rows from %s.', self.conn.rowcount, entry)
         return self.conn.rowcount
 
     def run(self):
