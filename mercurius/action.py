@@ -176,6 +176,7 @@ class Action(metaclass=ActionMeta):
 
     def do_list(self):
         self.list = self._source.list(self.since, self.complete)
+        if self.dry: self.list = self.list[:1]
         self.log.info('Generated %s sources.', len(self.list))
 
     def do_staging(self):
