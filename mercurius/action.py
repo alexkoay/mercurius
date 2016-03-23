@@ -126,7 +126,7 @@ class Action(metaclass=ActionMeta):
                 [self._schema, self._table])
             self._fields = [col[0] for col in self.conn.fetchall()]
         return self._fields
-    def field_to_pos(self, name): return self.fields().index(name)
+    def pos(self, name): return self.fields().index(name)
     def field(self): return ', '.join(self.fields())
     def field_set(self, table='EXCLUDED'):
         return ', '.join('{0} = {1}.{0}'.format(i, table) for i in self.fields())
