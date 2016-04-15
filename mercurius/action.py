@@ -137,8 +137,8 @@ class Action(metaclass=ActionMeta):
             result = self.conn.fetchone()
             return result[0].astimezone(datetime.timezone.utc).astimezone(tz=None) if result else None
         else:
-            self.sql('INSERT INTO _updated VALUES (%s, %s) '
-                'ON CONFLICT (id) DO UPDATE SET updated = EXCLUDED.updated',
+            self.sql('INSERT INTO _updated VALUES (%s, %s, NOW()) '
+                'ON CONFLICT (id) DO UPDATE SET updated = EXCLUDED.updated, refreshed = EXCLUDED.refreshed',
                 [self._id, value.astimezone(datetime.timezone.utc).astimezone(tz=None)])
             return value
 
